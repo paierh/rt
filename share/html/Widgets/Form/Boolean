@@ -104,7 +104,6 @@ $CurrentValue => undef,
   </div>
 </div>
 % }
-% }
 </%METHOD>
 
 <%METHOD Process>
