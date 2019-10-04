@@ -55,7 +55,8 @@ use 5.010;
 use File::Spec ();
 use Symbol::Global::Name;
 use List::MoreUtils 'uniq';
-use Storable;
+use Storable ();
+use Pod::Simple::HTML;
 
 # Store log messages generated before RT::Logger is available
 our @PreInitLoggerMessages;
@@ -616,6 +617,24 @@ our %META;
                 ) if "$value" =~ /^\(\?[a-z]*-([a-z]*):/ and "$1" =~ /i/;
             }
         },
+    },
+    CanonicalizeEmailAddressMatch => {
+        Section         => 'Mail',                                     #loc
+        Type    => 'SCALAR',
+        Overridable     => 1,
+        Widget          => '/Widgets/Form/String',
+    },
+    CanonicalizeEmailAddressReplace => {
+        Section         => 'Mail',                                     #loc
+        Type    => 'SCALAR',
+        Overridable     => 1,
+        Widget          => '/Widgets/Form/String',
+    },
+    EmailSubjectTagRegex => {
+        Section         => 'Mail',                                     #loc
+        Type    => 'SCALAR',
+        Overridable     => 1,
+        Widget          => '/Widgets/Form/String',
     },
     # User overridable mail options
     EmailFrequency => {
@@ -1331,9 +1350,15 @@ our %META;
             }
         },
     },
-
+    UserAutocreateDefaultsOnLogin => {
+        Type => 'HASH',
+    },
+    AutoCreateNonExternalUsers => {
+        Widget => '/Widgets/Form/Boolean',
+    },
     ServiceAgreements => {
         Type => 'HASH',
+    },
     AllowUserAutocompleteForUnprivileged => {
         Widget => '/Widgets/Form/Boolean',
     },
@@ -1484,6 +1509,15 @@ our %META;
     ValidateUserEmailAddresses => {
         Widget => '/Widgets/Form/Boolean',
     },
+    VERPPrefix => {
+        Widget => '/Widgets/Form/String',
+        Hints  => 'rt-',
+    },
+    VERPDomain => {
+        Widget => '/Widgets/Form/String',
+        Hints  => '',
+#RT->Config->Get( 'Organization'),
+    },
     WebFallbackToRTLogin => {
         Widget => '/Widgets/Form/Boolean',
     },
@@ -1627,7 +1661,18 @@ our %META;
     WebImagesURL => {
         Widget => '/Widgets/Form/String',
     },
-
+    AssetQueues => {
+        Type => 'ARRAY',
+        Hints  => '',
+    },
+    AssetBasicCustomFieldsOnCreate => {
+        Type => 'ARRAY',
+        Hints  => '[ "foo", "bar"]',
+    },
+    DefaultCatalog => {
+        Widget => '/Widgets/Form/String',
+        Hints  => 'General assets',
+    },
     AssetSearchFormat => {
         Widget => '/Widgets/Form/MultilineString',
     },
@@ -1679,11 +1724,9 @@ our %META;
         Widget => '/Widgets/Form/Select',
         WidgetArguments => { Values => [qw(debug info notice warning error critical alert emergency)] },
     },
-
     DefaultSearchResultOrder => {
         Widget => '/Widgets/Form/Select',
         WidgetArguments => { Values => [qw(ASC DESC)] },
->>>>>>> f25747d25... Add widget metadata for config options
     },
 );
 my %OPTIONS = ();
@@ -1886,6 +1929,179 @@ sub PostLoadCheck {
     }
 }
 
+=head2 SectionMap
+
+A data structure used to breakup the option list into tabs/sections/subsections/options
+This is done by parsing RT_Config.pm and extracting the section names and level
+
+=cut
+
+# initial data, manually created to give the tab structure and the order of the sections
+# the result of the parsing of RT_Config.pm will be added to this
+# sections will have content: a list of subsections with a Name and a Content
+our $SectionMap= [
+    { Name    => 'System',
+      Content => [
+          { Name => 'Base configuration' },
+          { Name => 'Database connection' },
+          { Name => 'Logging' },
+          { Name => 'Incoming mail gateway' },
+          { Name => 'Outgoing mail' },
+          { Name => 'Application logic' },
+          { Name => 'Extra security' },
+          { Name => 'Internationalization' },
+          { Name => 'Date and time handling' },
+          { Name => 'Initialdata Formats' },
+          { Name => 'Development options' },
+      ],
+    },
+    { Name => 'Web UI',
+      Content => [
+          { Name => 'Web interface' },
+      ],
+    },
+    { Name => 'Features',
+      Content => [
+          { Name => 'Assets' },
+          { Name => 'Cryptography' },
+          { Name => 'External storage' },
+          { Name => 'SLA' },
+          { Name => 'Administrative interface' },
+      ],
+    },
+    { Name => 'User Auth',
+      Content => [
+          { Name => 'Authorization and user configuration' },
+      ],
+    },
+];
+
+our $SectionMapLoaded=0; # so we only load it once
+
+sub LoadSectionMap {
+    my $self = shift;
+
+    if( $SectionMapLoaded) {
+        return $SectionMap;
+    }
+
+    # create a hash <section> => <tab> / Content so we know in which tab to look for a section
+    my %SectionIndex;
+    foreach my $Tab (@$SectionMap) {
+        my $TabName= $Tab->{Name};
+        foreach my $section ( @{$Tab->{Content}}) {
+            $section->{Content} = [];
+            $SectionIndex{$section->{Name}} = { Tab => $TabName, Content => $section->{Content} };
+        }
+    }
+
+    my $ConfigFile= "$RT::EtcPath/RT_Config.pm";
+    my $PodParser = Pod::Simple::HTML->new();
+
+    my $html;
+    $PodParser->output_string(\$html);
+    $PodParser->parse_file( $ConfigFile);
+
+    my $CurrentTabName;
+    my $CurrentSectionName;
+    my $CurrentSubSectionName;
+    my $CurrentSectionContent;
+
+    while( $html=~ m{<(h[12]|dt)\b[^>]*>(.*?)</\1>}sg) {
+        my( $tag, $content)= ($1, $2);
+        if( $tag eq 'h1') {
+            my ( $id, $title)= $content=~ m{<a class='u'\s*name="([^"]*)"\s*>([^<]*)</a>};
+            next if $title eq 'NAME';
+            $CurrentSectionName = $title;
+            if( $SectionIndex{$CurrentSectionName}->{Tab} ) {
+                $CurrentTabName = $SectionIndex{$CurrentSectionName}->{Tab};
+                # create a sub section with no name, for section level options
+                push @{$SectionIndex{$CurrentSectionName}->{Content}}, { Name => '', Content => [] };
+                $CurrentSectionContent = $SectionIndex{$CurrentSectionName}->{Content};
+                $CurrentSubSectionName='';
+            }
+            else {
+                warn( "section $CurrentSectionName not found in SectionMap\n");
+            }
+        }
+        elsif( $tag eq 'h2') {
+            my ( $id, $title)= $content=~ m{<a class='u'\s*name="([^"]*)"\s*>([^<]*)</a>};
+            $CurrentSubSectionName= $title;
+            push  @$CurrentSectionContent, { Name => $CurrentSubSectionName, Content => [] };
+        }
+        else {
+            # tag is 'dt'
+            my @options;
+            # a single item (dt) can document several options, in separate <code> elements
+            my( $name)= $content=~ m{name=".([^"]*)"};
+            $name=~ s{,_.}{-}g;
+            while( $content=~ m{<code>(.)([^<]*)</code>}sg) {
+                my( $sigil, $option)= ($1, $2);
+                next unless $sigil=~ m{[\@\%\$]}; # no sigil => this is a value for a select option
+                if( $META{$option}) {
+                    my $LastSubSectionContent = $CurrentSectionContent->[-1]->{Content};
+                    push @$LastSubSectionContent, { Name => $option, Help => $name };
+                }
+                else {
+                    my $TabName= $SectionIndex{$CurrentSectionName}->{Name};
+                    warn( "missing META info for option [$option]\n");
+                }
+            }
+        }
+    }
+    $SectionMapLoaded = 1;
+    return $SectionMap;
+}
+
+sub name_to_id {
+    my $self = shift;
+    my $name = shift;
+    my $id = lc( $name) =~ s{[^a-z0-9]+}{-}gr;
+    return $id;
+}
+
+# returns an id in the EditConfig.html page
+# args are
+# type    => ['nav' || 'content' || 'form' ] id for nav links or content respectively 
+# level   => ['tab' || 'section' || 'subsection' ] 
+# context => { tab => <tab_id>, section => <section_id>, subsection => <subsection_id> }
+sub edit_config_id {
+    my $self = shift;
+    my %args = @_;
+    my $context = $args{context};
+    my @id_components = ($args{type}, $context->{tab});
+    if( $args{level} eq 'section') {
+        push @id_components, $context->{section};
+    }
+    elsif( $args{level} eq 'subsection') {
+        push @id_components, $context->{section}, $context->{subsection};
+    }
+    return join '-', @id_components;
+}
+
+# returns whether a section is active (ie it's displayed when you open its tab) or not
+# if the current tab is active then the section is active if it is the active one
+# otherwise (the current tab is not the active one), the section is active if it is 
+# the first one
+# this is abstracted as a method because it needs to be called for each menu item  and 
+# for each tab content, so this avoids duplicating code 
+# first-section still needs to be managed by the calling code though
+sub section_is_active {
+    my $self= shift;
+    my %args = @_;
+    my $first_section = $args{first_section};
+    my $active_context = $args{active_context};
+    my $current_context = $args{current_context};
+
+    my $active = 0;
+    if( $current_context->{tab} eq $active_context->{tab} ) {
+        $active = 1 if $current_context->{section} eq $active_context->{section};
+     }
+     else {
+        $active = 1 if $first_section;
+    }
+    return $active;
+}
 =head2 Configs
 
 Returns list of config files found in local etc, plugins' etc

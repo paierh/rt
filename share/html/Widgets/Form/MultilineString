@@ -48,17 +48,24 @@
 <%DOC>
 see docs/extending/using_forms_widgets.pod
 </%DOC>
-<div id="form-box-<% lc $Name %>" class="widget <% $Class %>">
-<span class="description label"><% $Description %></span>
-<span class="value"><& SELF:InputOnly, %ARGS &></span>
+<div id="form-box-<% lc $Name %>" class="widget form-row <% $Class %>">
+  <span class="col-md-3 label">
+% if( $LabelLink ) {
+    <a href="<% $LabelLink %>"><% $Description %></a>
+% } else {
+    <% $Description %>
+% }
+  </span>
+<span class="col-md-9 value"><& SELF:InputOnly, %ARGS &>
 % if ( $Default ) {
 <span class="comment"><% $DefaultLabel %></span>
 % }
 <span class="hints"><% $Hints %></span>
+</span>
 </div>
 <%ARGS>
 $Name
-
+$LabelLink    => ''
 $Class        => ''
 $Description  => undef,
 $Hints        => ''

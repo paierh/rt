@@ -1,0 +1,23 @@
+% my $id = RT->Config->edit_config_id( type => 'form', level => 'subsection', context => $current_context);
+<form id="<% $id %>" name="EditConfig" method="post" action="EditConfig.html#<% $id %>">
+    <input type="hidden" name="Update" value="1" />
+% my $complete_title = 
+%     join ' - ', map { s{-}{ }g; loc( ucfirst $_ ) } 
+%     grep { $_ }
+%     map { $current_context->{$_} }
+%     (qw( tab section subsection ) );
+<&|/Widgets/TitleBox, title => $complete_title &>
+% foreach my $option ( @{$subsection->{Content}} ) {
+  <& /Admin/Tools/Config/Elements/Option, option => $option &>
+% }
+<input type="hidden" name="tab" value="<% $current_context->{tab} %>" />
+<input type="hidden" name="section" value="<% $current_context->{section} %>" />
+<input type="hidden" name="subsection" value="<% $current_context->{subsection} %>" />
+<& /Elements/Submit, Label => loc('Save Changes') &>
+</&>
+</form>
+<%ARGS>
+$subsection
+$active_context
+$current_context
+</%ARGS> 

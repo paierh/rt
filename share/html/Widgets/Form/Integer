@@ -49,16 +49,20 @@
 see docs/extending/using_forms_widgets.pod
 </%DOC>
 <div id="form-box-<% lc $Name %>" class="widget form-row">
-  <div class="col-md-3 label">
-    <% $Description // '' %>
-  </div>
-  <div class="col-md-9 value">
+  <span class="col-md-3 label">
+% if( $LabelLink ) {
+    <a href="<% $LabelLink %>"><% $Description %></a>
+% } else {
+    <% $Description %>
+% }
+  </span>
+  <span class="col-md-9 value">
     <& SELF:InputOnly, %ARGS &>
 % if ( $Default ) {
     <span class="comment"><% $DefaultLabel %></span>
 % }
     <span class="hints"><% $Hints %></span>
-  </div>
+  </span>
 </div>
 <%INIT>
 $_ = '' foreach grep !defined, $CurrentValue, $DefaultValue;
@@ -75,6 +79,7 @@ $CurrentValue => '',
 $Default        => 0,
 $DefaultValue   => 0,
 $DefaultLabel   => undef
+$LabelLink      => ''
 </%ARGS>
 
 <%METHOD InputOnly>

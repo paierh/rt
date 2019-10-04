@@ -1,0 +1,12 @@
+% my $section_id= RT->Config->name_to_id( $section->{Name} );
+
+% foreach my $subsection ( @{$section->{Content}} ) {
+%     $current_context->{subsection}= RT->Config->name_to_id( $subsection->{Name});
+  <& /Admin/Tools/Config/Elements/SubSection, subsection => $subsection, active_context => $active_context, current_context => $current_context &>
+  <!-- end subsection <% $subsection->{Name} %> -->
+% }
+<%ARGS>
+$section
+$active_context
+$current_context
+</%ARGS> 
